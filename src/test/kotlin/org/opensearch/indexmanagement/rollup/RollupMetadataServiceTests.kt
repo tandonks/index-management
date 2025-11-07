@@ -73,7 +73,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = getInstant("2020-10-02T05:01:00Z")
         val expectedWindowEndTime = getInstant("2020-10-02T05:02:00Z")
@@ -114,7 +114,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = getInstant("2020-10-02T05:00:00Z")
         val expectedWindowEndTime = getInstant("2020-10-02T06:00:00Z")
@@ -155,7 +155,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = localDateAtTimezone("2020-03-08T01:00:00", ZoneId.of("America/Los_Angeles"))
         // Should jump to March 3, 2020, at 3AM PST for end time due to DST
@@ -197,7 +197,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = getInstant("2020-10-02T00:00:00Z")
         val expectedWindowEndTime = getInstant("2020-10-03T00:00:00Z")
@@ -238,7 +238,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = getInstant("2020-02-28T00:00:00Z")
         val expectedWindowEndTime = getInstant("2020-02-29T00:00:00Z")
@@ -279,7 +279,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         // Since Monday is the beginning of the calendar week, the start time will be last Monday
         // given that the first document timestamp was on Sunday
@@ -322,7 +322,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = getInstant("2019-12-01T00:00:00Z")
         val expectedWindowEndTime = getInstant("2020-01-01T00:00:00Z")
@@ -363,7 +363,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = getInstant("2020-04-01T00:00:00Z")
         val expectedWindowEndTime = getInstant("2020-07-01T00:00:00Z")
@@ -404,7 +404,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = getInstant("2020-01-01T00:00:00Z")
         val expectedWindowEndTime = getInstant("2021-01-01T00:00:00Z")
@@ -445,7 +445,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = localDateAtTimezone("2020-04-24T08:00:00", ZoneId.of("America/Los_Angeles"))
         val expectedWindowEndTime = localDateAtTimezone("2020-04-24T09:00:00", ZoneId.of("America/Los_Angeles"))
@@ -486,7 +486,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = localDateAtTimezone("2020-04-24T01:00:00", ZoneId.of("America/Los_Angeles"))
         val expectedWindowEndTime = localDateAtTimezone("2020-04-24T02:00:00", ZoneId.of("America/Los_Angeles"))
@@ -527,7 +527,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = getInstant("2020-04-24T21:00:00Z")
         val expectedWindowEndTime = getInstant("2020-04-25T00:00:00Z")
@@ -568,7 +568,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         val expectedWindowStartTime = localDateAtTimezone("2020-03-08T00:00:00", ZoneId.of("America/Los_Angeles"))
         // Fixed interval does not understand daylight savings time so 3 hours (60 minutes * 3) is added to the start time
@@ -611,7 +611,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = getIndexResponse(),
                 indexException = null,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         // 30 days (24 hours * 30) increments since epoch will land us on 2020-01-09 as the nearest bucket
         val expectedWindowStartTime = getInstant("2020-01-09T00:00:00Z")
@@ -644,7 +644,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                     listener.onFailure(getException)
                 }.whenever(this.mock).get(any(), any())
             }
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         runBlocking {
             val initMetadataResult = metadataService.init(rollup)
@@ -671,7 +671,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                 indexResponse = null,
                 indexException = indexException,
             )
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         runBlocking {
             val initMetadataResult = metadataService.init(rollup)
@@ -711,7 +711,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                     listener.onResponse(getResponse)
                 }.whenever(this.mock).get(any(), any())
             }
-        RollupMetadataService(client, xContentRegistry)
+        RollupMetadataService(client, xContentRegistry, getClusterService())
 
 //        runBlocking {
 //            val getExistingMetadataResult = metadataService.getExistingMetadata(metadata.id)
@@ -734,7 +734,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                     listener.onResponse(getResponse)
                 }.whenever(this.mock).get(any(), any())
             }
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         runBlocking {
             val getExistingMetadataResult =
@@ -760,7 +760,7 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
                     listener.onFailure(getException)
                 }.whenever(this.mock).get(any(), any())
             }
-        val metadataService = RollupMetadataService(client, xContentRegistry)
+        val metadataService = RollupMetadataService(client, xContentRegistry, getClusterService())
 
         runBlocking {
             val getExistingMetadataResult =
@@ -806,6 +806,17 @@ class RollupMetadataServiceTests : OpenSearchTestCase() {
         whenever(indexResponse.primaryTerm).doReturn(1L)
 
         return indexResponse
+    }
+
+    private fun getClusterService(): org.opensearch.cluster.service.ClusterService {
+        val mockMetadata = mock<org.opensearch.cluster.metadata.Metadata>()
+        val mockClusterState =
+            mock<org.opensearch.cluster.ClusterState> {
+                doReturn(mockMetadata).whenever(this.mock).metadata
+            }
+        return mock {
+            doReturn(mockClusterState).whenever(this.mock).state()
+        }
     }
 
     private fun getClient(

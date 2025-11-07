@@ -56,6 +56,11 @@ class RollupIndexer(
     @Suppress("ReturnCount")
     suspend fun indexRollups(rollup: Rollup, internalComposite: InternalComposite): RollupIndexResult {
         try {
+            // Log all bucket aggregations
+            internalComposite.buckets.forEach { bucket ->
+                val aggDetails = bucket.aggregations.map { "${it.name}: $it" }.joinToString(", ")
+                logger.info("Bucket key: {}, docCount: {}, aggregations: [{}]", bucket.key, bucket.docCount, aggDetails)
+            }
             var requestsToRetry = convertResponseToRequests(rollup, internalComposite)
             var stats = RollupStats(0, 0, requestsToRetry.size.toLong(), 0, 0)
             val nonRetryableFailures = mutableListOf<BulkItemResponse>()

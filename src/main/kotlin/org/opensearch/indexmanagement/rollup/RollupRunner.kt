@@ -266,12 +266,20 @@ object RollupRunner :
                             withClosableContext(
                                 IndexManagementSecurityContext(job.id, settings, threadPool.threadContext, job.user),
                             ) {
-                                rollupSearchService.executeCompositeSearch(updatableJob, metadata)
+                                org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.setBypass(org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.BYPASS_ROLLUP_SEARCH)
+                                try {
+                                    rollupSearchService.executeCompositeSearch(updatableJob, metadata, clusterService)
+                                } finally {
+                                    org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.clearBypass()
+                                }
                             }
                         val rollupResult =
                             when (rollupSearchResult) {
                                 is RollupSearchResult.Success -> {
+                                    val aggDetails = rollupSearchResult.searchResponse.aggregations?.map { "${it.name}: $it" }?.joinToString(", ")
+                                    logger.info("Aggregation idhr: [{}]", aggDetails)
                                     val compositeRes: InternalComposite = rollupSearchResult.searchResponse.aggregations.get(updatableJob.id)
+                                    logger.info("Aggregation idhr: {}", rollupSearchResult.searchResponse.aggregations)
                                     metadata = metadata.incrementStats(rollupSearchResult.searchResponse, compositeRes)
                                     val rollupIndexResult =
                                         withClosableContext(
@@ -288,6 +296,7 @@ object RollupRunner :
                                     RollupResult.Failure(rollupSearchResult.message, rollupSearchResult.cause)
                                 }
                             }
+//                        logger.error("Response idhr 7: {}", rollupResult)
                         when (rollupResult) {
                             is RollupResult.Success -> {
                                 metadata =

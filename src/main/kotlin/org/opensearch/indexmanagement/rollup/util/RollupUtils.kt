@@ -81,7 +81,7 @@ fun isRollupIndex(index: String, clusterState: ClusterState): Boolean {
 
 fun Rollup.isTargetIndexAlias(): Boolean = RollupFieldValueExpressionResolver.indexAliasUtils.isAlias(targetIndex)
 
-fun Rollup.getRollupSearchRequest(metadata: RollupMetadata): SearchRequest {
+fun Rollup.getRollupSearchRequest(metadata: RollupMetadata, clusterState: ClusterState): SearchRequest {
     val query =
         if (metadata.continuous != null) {
             RangeQueryBuilder(this.getDateHistogram().sourceField)
@@ -95,7 +95,7 @@ fun Rollup.getRollupSearchRequest(metadata: RollupMetadata): SearchRequest {
         SearchSourceBuilder()
             .trackTotalHits(false)
             .size(0)
-            .aggregation(this.getCompositeAggregationBuilder(metadata.afterKey))
+            .aggregation(this.getCompositeAggregationBuilder(metadata.afterKey, clusterState))
             .query(query)
     return SearchRequest(this.sourceIndex)
         .source(searchSourceBuilder)
@@ -103,9 +103,28 @@ fun Rollup.getRollupSearchRequest(metadata: RollupMetadata): SearchRequest {
 }
 
 @Suppress("ComplexMethod", "NestedBlockDepth")
-fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?): CompositeAggregationBuilder {
+fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterState: ClusterState): CompositeAggregationBuilder {
+    val isRollupIndex = isRollupIndex(this.sourceIndex, clusterState)
     val sources = mutableListOf<CompositeValuesSourceBuilder<*>>()
-    this.dimensions.forEach { dimension -> sources.add(dimension.toSourceBuilder(appendType = true)) }
+    if (isRollupIndex) {
+        this.dimensions.forEach { dimension ->
+            val sourceBuilder = dimension.toSourceBuilder(appendType = true)
+            when (dimension) {
+                is DateHistogram -> {
+                    sourceBuilder.field("${dimension.targetField}.${dimension.type.type}")
+                }
+                is Terms -> {
+                    sourceBuilder.field("${dimension.targetField}.${dimension.type.type}")
+                }
+                is Histogram -> {
+                    sourceBuilder.field("${dimension.targetField}.${dimension.type.type}")
+                }
+            }
+            sources.add(sourceBuilder)
+        }
+    } else {
+        this.dimensions.forEach { dimension -> sources.add(dimension.toSourceBuilder(appendType = true)) }
+    }
     return CompositeAggregationBuilder(this.id, sources).size(this.pageSize).also { compositeAgg ->
         afterKey?.let { compositeAgg.aggregateAfter(it) }
         this.metrics.forEach { metric ->
@@ -113,15 +132,22 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?): Composit
                 metric.metrics.flatMap { agg ->
                     when (agg) {
                         is Average -> {
-                            listOf(
-                                SumAggregationBuilder(metric.targetFieldWithType(agg) + ".sum").field(metric.sourceField),
-                                ValueCountAggregationBuilder(metric.targetFieldWithType(agg) + ".value_count").field(metric.sourceField),
-                            )
+                            if (isRollupIndex) {
+                                listOf(
+                                    SumAggregationBuilder(metric.targetFieldWithType(agg) + ".sum").field(metric.targetFieldWithType(agg) + ".sum"),
+                                    ValueCountAggregationBuilder(metric.targetFieldWithType(agg) + ".value_count").field(metric.targetFieldWithType(agg) + ".value_count"),
+                                )
+                            } else {
+                                listOf(
+                                    SumAggregationBuilder(metric.targetFieldWithType(agg) + ".sum").field(metric.sourceField),
+                                    ValueCountAggregationBuilder(metric.targetFieldWithType(agg) + ".value_count").field(metric.sourceField),
+                                )
+                            }
                         }
-                        is Sum -> listOf(SumAggregationBuilder(metric.targetFieldWithType(agg)).field(metric.sourceField))
-                        is Max -> listOf(MaxAggregationBuilder(metric.targetFieldWithType(agg)).field(metric.sourceField))
-                        is Min -> listOf(MinAggregationBuilder(metric.targetFieldWithType(agg)).field(metric.sourceField))
-                        is ValueCount -> listOf(ValueCountAggregationBuilder(metric.targetFieldWithType(agg)).field(metric.sourceField))
+                        is Sum -> listOf(SumAggregationBuilder(metric.targetFieldWithType(agg)).field(if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField))
+                        is Max -> listOf(MaxAggregationBuilder(metric.targetFieldWithType(agg)).field(if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField))
+                        is Min -> listOf(MinAggregationBuilder(metric.targetFieldWithType(agg)).field(if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField))
+                        is ValueCount -> listOf(ValueCountAggregationBuilder(metric.targetFieldWithType(agg)).field(if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField))
                         // This shouldn't be possible as rollup will fail to initialize with an unsupported metric
                         else -> throw IllegalArgumentException("Found unsupported metric aggregation ${agg.type.type}")
                     }
@@ -201,13 +227,16 @@ fun IndexMetadata.getRollupJobs(): List<Rollup>? {
 // TODO: If we have to set this manually for each aggregation builder then it means we could miss new ones settings in the future
 @Suppress("ComplexMethod", "LongMethod")
 fun Rollup.rewriteAggregationBuilder(aggregationBuilder: AggregationBuilder): AggregationBuilder {
+    val logger = org.apache.logging.log4j.LogManager.getLogger("RollupUtils")
+    logger.info("Rewriting aggregation {}", aggregationBuilder)
     val aggFactory =
         AggregatorFactories.builder().also { factories ->
             aggregationBuilder.subAggregations.forEach {
                 factories.addAggregator(this.rewriteAggregationBuilder(it))
             }
         }
-
+    logger.info("Rewriting aggregation 2 {}", aggregationBuilder)
+    logger.info("Aggregation type: {}", aggregationBuilder.javaClass.simpleName)
     return when (aggregationBuilder) {
         is TermsAggregationBuilder -> {
             val dim = this.findMatchingDimension(aggregationBuilder.field(), Dimension.Type.TERMS) as Terms
