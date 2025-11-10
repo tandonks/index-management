@@ -254,7 +254,9 @@ class RollupMetadataService(
                 )
                 .allowPartialSearchResults(false)
 
-            org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.setBypass(org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.BYPASS_METADATA_SERVICE)
+            org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.setBypass(
+                org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.BYPASS_METADATA_SERVICE,
+            )
             try {
                 val response: SearchResponse = client.suspendUntil { search(searchRequest, it) }
 

@@ -135,7 +135,8 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                             if (isRollupIndex) {
                                 listOf(
                                     SumAggregationBuilder(metric.targetFieldWithType(agg) + ".sum").field(metric.targetFieldWithType(agg) + ".sum"),
-                                    ValueCountAggregationBuilder(metric.targetFieldWithType(agg) + ".value_count").field(metric.targetFieldWithType(agg) + ".value_count"),
+                                    ValueCountAggregationBuilder(metric.targetFieldWithType(agg) + ".value_count")
+                                        .field(metric.targetFieldWithType(agg) + ".value_count"),
                                 )
                             } else {
                                 listOf(
@@ -144,10 +145,30 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                                 )
                             }
                         }
-                        is Sum -> listOf(SumAggregationBuilder(metric.targetFieldWithType(agg)).field(if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField))
-                        is Max -> listOf(MaxAggregationBuilder(metric.targetFieldWithType(agg)).field(if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField))
-                        is Min -> listOf(MinAggregationBuilder(metric.targetFieldWithType(agg)).field(if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField))
-                        is ValueCount -> listOf(ValueCountAggregationBuilder(metric.targetFieldWithType(agg)).field(if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField))
+                        is Sum -> listOf(
+                            SumAggregationBuilder(metric.targetFieldWithType(agg))
+                                .field(
+                                    if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField,
+                                ),
+                        )
+                        is Max -> listOf(
+                            MaxAggregationBuilder(metric.targetFieldWithType(agg))
+                                .field(
+                                    if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField,
+                                ),
+                        )
+                        is Min -> listOf(
+                            MinAggregationBuilder(metric.targetFieldWithType(agg))
+                                .field(
+                                    if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField,
+                                ),
+                        )
+                        is ValueCount -> listOf(
+                            ValueCountAggregationBuilder(metric.targetFieldWithType(agg))
+                                .field(
+                                    if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField,
+                                ),
+                        )
                         // This shouldn't be possible as rollup will fail to initialize with an unsupported metric
                         else -> throw IllegalArgumentException("Found unsupported metric aggregation ${agg.type.type}")
                     }
