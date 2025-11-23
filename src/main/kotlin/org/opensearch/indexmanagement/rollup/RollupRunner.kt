@@ -271,9 +271,10 @@ object RollupRunner :
                             withClosableContext(
                                 IndexManagementSecurityContext(job.id, settings, threadPool.threadContext, job.user),
                             ) {
+                                logger.info("Idhr phuch gye hain bhai")
                                 org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.setBypass(
                                     org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.BYPASS_ROLLUP_SEARCH,
-                                )
+                                ) // This is wrong we cannot skip it as value count calculation will become wrong otherwise
                                 try {
                                     rollupSearchService.executeCompositeSearch(updatableJob, metadata, clusterService)
                                 } finally {
@@ -286,13 +287,15 @@ object RollupRunner :
                                     val aggDetails = rollupSearchResult.searchResponse.aggregations?.map { "${it.name}: $it" }?.joinToString(", ")
                                     logger.info("Aggregation idhr: [{}]", aggDetails)
                                     val compositeRes: InternalComposite = rollupSearchResult.searchResponse.aggregations.get(updatableJob.id)
-                                    logger.info("Aggregation idhr: {}", rollupSearchResult.searchResponse.aggregations)
+                                    logger.info("Aggregation idhr: {}", compositeRes)
                                     metadata = metadata.incrementStats(rollupSearchResult.searchResponse, compositeRes)
                                     val rollupIndexResult =
                                         withClosableContext(
                                             IndexManagementSecurityContext(job.id, settings, threadPool.threadContext, job.user),
                                         ) {
-                                            rollupIndexer.indexRollups(updatableJob, compositeRes)
+                                            val result = rollupIndexer.indexRollups(updatableJob, compositeRes)
+                                            printRollupDocuments(updatableJob.targetIndex)
+                                            result
                                         }
                                     when (rollupIndexResult) {
                                         is RollupIndexResult.Success -> RollupResult.Success(compositeRes, rollupIndexResult.stats)
@@ -517,17 +520,36 @@ object RollupRunner :
             )
         }
 
-        // Validate metric compatibility
-        val sourceMetrics = sourceJob.metrics.flatMap { it.metrics }.map { it.type.type }.toSet()
-        val targetMetrics = job.metrics.flatMap { it.metrics }.map { it.type.type }.toSet()
-        val unsupportedMetrics = targetMetrics - sourceMetrics
+        // Validate source field compatibility
+        val sourceDimensionFields = sourceJob.dimensions.map { it.sourceField }.toSet()
+        val sourceMetricFields = sourceJob.metrics.map { it.sourceField }.toSet()
+        val targetDimensionFields = job.dimensions.map { it.sourceField }.toSet()
+        val targetMetricFields = job.metrics.map { it.sourceField }.toSet()
 
-        return if (unsupportedMetrics.isNotEmpty()) {
-            RollupJobValidationResult.Invalid(
-                "Target rollup requests metrics $unsupportedMetrics that are not available in source rollup",
+        val invalidDimensionFields = targetDimensionFields - sourceDimensionFields
+        val invalidMetricFields = targetMetricFields - sourceMetricFields
+
+        return when {
+            invalidDimensionFields.isNotEmpty() -> RollupJobValidationResult.Invalid(
+                "Cannot rollup on dimension fields $invalidDimensionFields that don't exist in source rollup",
             )
-        } else {
-            RollupJobValidationResult.Valid
+            invalidMetricFields.isNotEmpty() -> RollupJobValidationResult.Invalid(
+                "Cannot rollup on metric fields $invalidMetricFields that don't exist in source rollup",
+            )
+            else -> {
+                // Validate metric compatibility
+                val sourceMetrics = sourceJob.metrics.flatMap { it.metrics }.map { it.type.type }.toSet()
+                val targetMetrics = job.metrics.flatMap { it.metrics }.map { it.type.type }.toSet()
+                val unsupportedMetrics = targetMetrics - sourceMetrics
+
+                if (unsupportedMetrics.isNotEmpty()) {
+                    RollupJobValidationResult.Invalid(
+                        "Target rollup requests metrics $unsupportedMetrics that are not available in source rollup",
+                    )
+                } else {
+                    RollupJobValidationResult.Valid
+                }
+            }
         }
     }
 
@@ -543,6 +565,24 @@ object RollupRunner :
         DateHistogramInterval(interval).estimateMillis()
     } else {
         TimeValue.parseTimeValue(interval, "parseIntervalToMillis").millis
+    }
+
+    private suspend fun printRollupDocuments(targetIndex: String) {
+        try {
+            val searchRequest = org.opensearch.action.search.SearchRequest(targetIndex)
+                .source(org.opensearch.search.builder.SearchSourceBuilder().size(100).query(org.opensearch.index.query.QueryBuilders.matchAllQuery()))
+            val searchResponse: org.opensearch.action.search.SearchResponse = client.suspendUntil { search(searchRequest, it) }
+
+            logger.info("=== ROLLUP DOCUMENTS ($targetIndex) ===")
+            logger.info("Total documents: ${searchResponse.hits.totalHits?.value ?: 0}")
+
+            searchResponse.hits.hits.forEachIndexed { index, hit ->
+                logger.info("Doc $index: ${hit.sourceAsString}")
+            }
+            logger.info("=== END ROLLUP DOCUMENTS ===")
+        } catch (e: Exception) {
+            logger.warn("Failed to print rollup documents for index $targetIndex: ${e.message}")
+        }
     }
 }
 

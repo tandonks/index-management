@@ -81,7 +81,7 @@ class RollupInterceptor(
 
         private fun shouldBypass(): Boolean = bypassInterceptor.get() != null
 
-        private fun getBypassLevel(): Int = bypassInterceptor.get() ?: 0
+        fun getBypassLevel(): Int = bypassInterceptor.get() ?: 0
     }
 
     init {
@@ -105,19 +105,23 @@ class RollupInterceptor(
     ): TransportRequestHandler<T> = object : TransportRequestHandler<T> {
         override fun messageReceived(request: T, channel: TransportChannel, task: Task) {
             if (searchEnabled && request is ShardSearchRequest) {
-                logger.info("Before rewrite - request source: {}", request.source())
                 val index = request.shardId().indexName
                 val isRollupIndex = isRollupIndex(index, clusterService.state())
                 if (isRollupIndex) {
                     if (getBypassLevel() == BYPASS_ROLLUP_SEARCH) {
-                        // Skip all rollup interceptor logic for rollup-on-rollup scenarios
+                        // Handle rollup-on-rollup scenarios
+                        val rollupJob = clusterService.state().metadata.index(index).getRollupJobs()?.get(0)
+                            ?: throw IllegalArgumentException("No rollup job associated with target_index")
+                        val rollupFieldMappings = rollupJob.populateFieldMappings()
+                        val allMatchingRollupJobs = mapOf(rollupJob to rollupFieldMappings)
+                        rewriteShardSearchForRollupJobs(request, allMatchingRollupJobs)
                         actualHandler.messageReceived(request, channel, task)
                         return
                     }
 
-                    if (!shouldBypass() && request.source().size() != 0) {
-                        throw IllegalArgumentException("Rollup search must have size explicitly set to 0, but found ${request.source().size()}")
-                    }
+//                    if (!shouldBypass() && request.source().size() != 0) {
+//                        throw IllegalArgumentException("Rollup search must have size explicitly set to 0, but found ${request.source().size()}")
+//                    }
 
                     val indices = request.indices().map { it.toString() }.toTypedArray()
                     val concreteIndices =
@@ -132,20 +136,14 @@ class RollupInterceptor(
                             request.source().query(),
                             getConcreteSourceIndex(rollupJob.sourceIndex, indexNameExpressionResolver, clusterService.state()),
                         )
-                    logger.info("ShardID: {}", request.shardId())
-                    logger.info("ShardID: {}", request.source())
                     val aggregationFieldMappings = getAggregationMetadata(request.source().aggregations()?.aggregatorFactories)
                     val fieldMappings = queryFieldMappings + aggregationFieldMappings
 
-                    logger.info("Field mappings: {}", fieldMappings)
                     val allMatchingRollupJobs = validateIndicies(concreteIndices, fieldMappings)
-                    logger.info("Matching rollup jobs: {}", allMatchingRollupJobs.keys.map { it.id })
 
                     // only rebuild if there is necessity to rebuild
                     if (fieldMappings.isNotEmpty()) {
-                        logger.info("Before rewrite - request source: {}", request.source())
                         rewriteShardSearchForRollupJobs(request, allMatchingRollupJobs)
-                        logger.info("After rewrite - request source: {}", request.source())
                     }
                 }
             }
@@ -227,11 +225,7 @@ class RollupInterceptor(
                     fieldMappings.add(RollupFieldMapping(RollupFieldMapping.Companion.FieldType.METRIC, it.field(), it.type))
                 }
                 else -> {
-                    if (it.type == "composite" && getBypassLevel() == BYPASS_METADATA_SERVICE) {
-                        // For composite aggregations in metadata service scenarios, manually add dimension field mappings
-                        // Based on the logs, we know the composite has timestamp and category dimensions
-                        fieldMappings.add(RollupFieldMapping(RollupFieldMapping.Companion.FieldType.DIMENSION, "timestamp", "date_histogram"))
-                        fieldMappings.add(RollupFieldMapping(RollupFieldMapping.Companion.FieldType.DIMENSION, "category", "terms"))
+                    if (it.type == "composite") {
                     } else {
                         throw IllegalArgumentException("The ${it.type} aggregation is not currently supported in rollups")
                     }

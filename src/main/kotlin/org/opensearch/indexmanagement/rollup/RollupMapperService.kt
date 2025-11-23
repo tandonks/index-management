@@ -296,6 +296,8 @@ class RollupMapperService(
             val issues = mutableSetOf<String>()
             // Validate source fields in dimensions
             rollup.dimensions.forEach { dimension ->
+                logger.info("Bhai kaise nhi pakad rha: {} - {}", dimension.sourceField, indexMappingSource.toString())
+
                 if (!isFieldInMappings(dimension.sourceField, indexMappingSource)) {
                     issues.add("missing field ${dimension.sourceField}")
                 }

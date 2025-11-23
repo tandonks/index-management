@@ -60,6 +60,7 @@ class RollupMetadataService(
     // document for this job otherwise we should get the existing metadata document
     @Suppress("ReturnCount", "ComplexMethod", "NestedBlockDepth")
     suspend fun init(rollup: Rollup): MetadataResult {
+        logger.info("Metadata se ja rha hu 6 {}", rollup.metadataID)
         if (rollup.metadataID != null) {
             val existingMetadata =
                 when (val getMetadataResult = getExistingMetadata(rollup)) {
@@ -68,8 +69,11 @@ class RollupMetadataService(
                     is MetadataResult.Failure -> return getMetadataResult
                 }
 
+            logger.info("Metadata se ja rha hu 4 {}", existingMetadata)
+
             if (existingMetadata != null) {
                 if (existingMetadata.status == RollupMetadata.Status.RETRY) {
+                    logger.info("Metadata se ja rha hu 5 {}", existingMetadata)
                     val recoveredMetadata =
                         when (val recoverMetadataResult = recoverRetryMetadata(rollup, existingMetadata)) {
                             is MetadataResult.Success -> recoverMetadataResult.metadata
@@ -185,6 +189,7 @@ class RollupMetadataService(
         try {
             // Check if source is a rollup index and use appropriate method
             val isSourceRollupIndex = isRollupIndex(rollup.sourceIndex, clusterService.state())
+            logger.info("Metadata se ja rha hu 3 {}", isSourceRollupIndex)
             if (isSourceRollupIndex) {
                 // Use min aggregation for rollup indices (RollupInterceptor blocks size > 0)
                 return getEarliestTimestampFromRollupIndex(rollup)
@@ -242,6 +247,7 @@ class RollupMetadataService(
             val dateHistogram = rollup.dimensions.first() as DateHistogram
             val dateField = dateHistogram.sourceField
 
+            logger.info("Metadata se ja rha hu 2")
             val searchRequest = SearchRequest(rollup.sourceIndex)
                 .source(
                     SearchSourceBuilder()
@@ -258,6 +264,7 @@ class RollupMetadataService(
                 org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.BYPASS_METADATA_SERVICE,
             )
             try {
+                logger.info("Metadata se ja rha hu {}", org.opensearch.indexmanagement.rollup.interceptor.RollupInterceptor.getBypassLevel())
                 val response: SearchResponse = client.suspendUntil { search(searchRequest, it) }
 
                 if (response.hits.hits.isEmpty()) {
@@ -344,6 +351,7 @@ class RollupMetadataService(
         internalComposite: InternalComposite,
     ): RollupMetadata {
         val afterKey = internalComposite.afterKey()
+        logger.info("after update metadata me {}", afterKey)
         // TODO: get rid of !!
         val nextStart =
             if (afterKey == null) {

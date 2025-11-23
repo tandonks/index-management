@@ -135,7 +135,7 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                             if (isRollupIndex) {
                                 listOf(
                                     SumAggregationBuilder(metric.targetFieldWithType(agg) + ".sum").field(metric.targetFieldWithType(agg) + ".sum"),
-                                    ValueCountAggregationBuilder(metric.targetFieldWithType(agg) + ".value_count")
+                                    SumAggregationBuilder(metric.targetFieldWithType(agg) + ".value_count")
                                         .field(metric.targetFieldWithType(agg) + ".value_count"),
                                 )
                             } else {
@@ -164,10 +164,15 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                                 ),
                         )
                         is ValueCount -> listOf(
-                            ValueCountAggregationBuilder(metric.targetFieldWithType(agg))
-                                .field(
-                                    if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField,
-                                ),
+                            if (isRollupIndex) {
+                                // For rollup-on-rollup, sum the existing value_count fields
+                                SumAggregationBuilder(metric.targetFieldWithType(agg))
+                                    .field(metric.targetFieldWithType(agg))
+                            } else {
+                                // For raw data, count the documents
+                                ValueCountAggregationBuilder(metric.targetFieldWithType(agg))
+                                    .field(metric.sourceField)
+                            },
                         )
                         // This shouldn't be possible as rollup will fail to initialize with an unsupported metric
                         else -> throw IllegalArgumentException("Found unsupported metric aggregation ${agg.type.type}")
@@ -192,8 +197,13 @@ fun Rollup.findMatchingDimension(field: String, type: Dimension.Type): Dimension
 // This method is only to be used after its confirmed the search/aggs is valid and these exist
 @Suppress("NestedBlockDepth")
 inline fun <reified T> Rollup.findMatchingMetricField(field: String): String {
+    // Handle rollup-on-rollup case where field already has suffix
+    // For avg metrics: passenger_count.avg.sum -> passenger_count
+    // For other metrics: passenger_count.sum -> passenger_count
+    val baseField = field.split(".")[0]
+
     for (rollupMetrics in this.metrics) {
-        if (rollupMetrics.sourceField == field) {
+        if (rollupMetrics.sourceField == baseField) {
             for (metric in rollupMetrics.metrics) {
                 if (metric is T) {
                     return rollupMetrics.targetFieldWithType(metric)
@@ -258,7 +268,7 @@ fun Rollup.rewriteAggregationBuilder(aggregationBuilder: AggregationBuilder): Ag
         }
     logger.info("Rewriting aggregation 2 {}", aggregationBuilder)
     logger.info("Aggregation type: {}", aggregationBuilder.javaClass.simpleName)
-    return when (aggregationBuilder) {
+    val rewrittenAgg = when (aggregationBuilder) {
         is TermsAggregationBuilder -> {
             val dim = this.findMatchingDimension(aggregationBuilder.field(), Dimension.Type.TERMS) as Terms
             dim.getRewrittenAggregation(aggregationBuilder, aggFactory)
@@ -316,6 +326,8 @@ fun Rollup.rewriteAggregationBuilder(aggregationBuilder: AggregationBuilder): Ag
              * and the 3893 vs 3893.0 was bothering me.. so this is the next best I can think of. Hopefully there is a better
              * way and we can use that in the future.
              * */
+            val matchingField = this.findMatchingMetricField<ValueCount>(aggregationBuilder.field())
+
             ScriptedMetricAggregationBuilder(aggregationBuilder.name)
                 .initScript(Script(ScriptType.INLINE, Script.DEFAULT_SCRIPT_LANG, "state.valueCounts = []", emptyMap()))
                 .mapScript(
@@ -341,6 +353,8 @@ fun Rollup.rewriteAggregationBuilder(aggregationBuilder: AggregationBuilder): Ag
         // We do nothing otherwise, the validation logic should have already verified so not throwing an exception
         else -> aggregationBuilder
     }
+    logger.info("Rewritten aggregation result: {}", rewrittenAgg)
+    return rewrittenAgg
 }
 
 @Suppress("ComplexMethod", "LongMethod")
