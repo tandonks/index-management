@@ -38,6 +38,7 @@ import org.opensearch.indexmanagement.rollup.model.Rollup
 import org.opensearch.indexmanagement.rollup.model.RollupFieldMapping
 import org.opensearch.indexmanagement.rollup.model.RollupMetadata
 import org.opensearch.indexmanagement.rollup.model.metric.Average
+import org.opensearch.indexmanagement.rollup.model.metric.Cardinality
 import org.opensearch.indexmanagement.rollup.model.metric.Max
 import org.opensearch.indexmanagement.rollup.model.metric.Min
 import org.opensearch.indexmanagement.rollup.model.metric.Sum
@@ -56,6 +57,7 @@ import org.opensearch.search.aggregations.bucket.histogram.DateHistogramAggregat
 import org.opensearch.search.aggregations.bucket.histogram.HistogramAggregationBuilder
 import org.opensearch.search.aggregations.bucket.terms.TermsAggregationBuilder
 import org.opensearch.search.aggregations.metrics.AvgAggregationBuilder
+import org.opensearch.search.aggregations.metrics.CardinalityAggregationBuilder
 import org.opensearch.search.aggregations.metrics.MaxAggregationBuilder
 import org.opensearch.search.aggregations.metrics.MinAggregationBuilder
 import org.opensearch.search.aggregations.metrics.ScriptedMetricAggregationBuilder
@@ -235,6 +237,11 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                                 },
                             )
                         }
+                        is Cardinality -> {
+                            // Single cardinality aggregation provides both value and sketch
+                            // Similar to how avg needs sum + value_count, but cardinality is self-contained
+                            listOf(CardinalityAggregationBuilder(metric.targetFieldWithType(agg)).field(metric.sourceField))
+                        }
                         // This shouldn't be possible as rollup will fail to initialize with an unsupported metric
                         else -> throw IllegalArgumentException("Found unsupported metric aggregation ${agg.type.type}")
                     }
@@ -410,7 +417,23 @@ fun Rollup.rewriteAggregationBuilder(aggregationBuilder: AggregationBuilder): Ag
                     ),
                 )
         }
+        is CardinalityAggregationBuilder -> {
+            // Rewrite cardinality aggregation to use the .hll field
+            // Customer queries: cardinality(field="user_id")
+            // Rewritten query: cardinality(field="user_id.hll")
+            //
+            // The HLL field mapper in OpenSearch core (PR #20129) handles:
+            // - Reading HLL sketch data from the hll field type
+            // - Deserializing to HyperLogLogPlusPlus objects
+            // - Merging sketches across documents
+            // - Returning the cardinality estimate
+            //
+            // This works transparently for both Tier-1 and Tier-N rollups.
+            val sourceField = aggregationBuilder.field()
+            val sketchField = this.findMatchingMetricField<Cardinality>(sourceField)
 
+            CardinalityAggregationBuilder(aggregationBuilder.name).field(sketchField)
+        }
         // We do nothing otherwise, the validation logic should have already verified so not throwing an exception
         else -> aggregationBuilder
     }
@@ -530,7 +553,15 @@ fun Rollup.populateFieldMappings(): Set<RollupFieldMapping> {
     }
     this.metrics.forEach { rollupMetric ->
         rollupMetric.metrics.forEach { metric ->
-            fieldMappings.add(RollupFieldMapping(RollupFieldMapping.Companion.FieldType.METRIC, rollupMetric.sourceField, metric.type.type))
+            // All metrics including cardinality are tracked the same way
+            // Cardinality stores both .value and .sketch (like avg stores .sum and .value_count)
+            fieldMappings.add(
+                RollupFieldMapping(
+                    RollupFieldMapping.Companion.FieldType.METRIC,
+                    rollupMetric.sourceField,
+                    metric.type.type,
+                ),
+            )
         }
     }
     return fieldMappings

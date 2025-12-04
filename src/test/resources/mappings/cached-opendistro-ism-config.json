@@ -472,6 +472,9 @@
                                 },
                                 "value_count": {
                                   "type": "object"
+                                },
+                                "cardinality": {
+                                  "type": "object"
                                 }
                               }
                             }
@@ -1116,6 +1119,9 @@
                   "type": "object"
                 },
                 "value_count": {
+                  "type": "object"
+                },
+                "cardinality": {
                   "type": "object"
                 }
               }

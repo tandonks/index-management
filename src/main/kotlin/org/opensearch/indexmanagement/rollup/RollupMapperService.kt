@@ -35,6 +35,7 @@ import org.opensearch.indexmanagement.rollup.model.RollupJobValidationResult
 import org.opensearch.indexmanagement.rollup.settings.LegacyOpenDistroRollupSettings
 import org.opensearch.indexmanagement.rollup.settings.RollupSettings
 import org.opensearch.indexmanagement.rollup.util.RollupFieldValueExpressionResolver
+import org.opensearch.indexmanagement.rollup.util.RollupMappingUtils
 import org.opensearch.indexmanagement.rollup.util.getRollupJobs
 import org.opensearch.indexmanagement.rollup.util.isRollupIndex
 import org.opensearch.indexmanagement.rollup.util.isTargetIndexAlias
@@ -157,7 +158,7 @@ class RollupMapperService(
         } else {
             val errorMessage = "Failed to create target index [$targetIndexResolvedName]"
             return try {
-                val response = createTargetIndex(targetIndexResolvedName, job.targetIndexSettings, hasLegacyPlugin)
+                val response = createTargetIndex(targetIndexResolvedName, job.targetIndexSettings, hasLegacyPlugin, job)
                 if (response.isAcknowledged) {
                     updateRollupIndexMappings(job, targetIndexResolvedName)
                 } else {
@@ -228,7 +229,42 @@ class RollupMapperService(
         return RollupJobValidationResult.Valid
     }
 
-    private suspend fun createTargetIndex(targetIndexName: String, targetIndexSettings: Settings?, hasLegacyPlugin: Boolean): CreateIndexResponse {
+    private suspend fun createTargetIndex(
+        targetIndexName: String,
+        targetIndexSettings: Settings?,
+        hasLegacyPlugin: Boolean,
+        rollup: Rollup,
+    ): CreateIndexResponse {
+        val settings = Settings.builder().apply {
+            targetIndexSettings?.let { put(it) }
+            val rollupIndexSetting = if (hasLegacyPlugin) {
+                LegacyOpenDistroRollupSettings.ROLLUP_INDEX
+            } else {
+                RollupSettings.ROLLUP_INDEX
+            }
+            put(rollupIndexSetting.key, true)
+        }.build()
+
+        val request =
+            CreateIndexRequest(targetIndexName)
+                .settings(settings)
+                .mapping(IndexManagementIndices.rollupTargetMappings)
+
+        // Create the index first
+        val response = client.admin().indices().suspendUntil { create(request, it) }
+
+        // If the rollup has cardinality metrics, add explicit field mappings
+        if (RollupMappingUtils.hasCardinalityMetrics(rollup)) {
+            val cardinalityMappings = RollupMappingUtils.buildCardinalityFieldMappings(rollup)
+            val putMappingRequest =
+                PutMappingRequest(targetIndexName).source(cardinalityMappings, XContentType.JSON)
+            client.admin().indices().suspendUntil { putMapping(putMappingRequest, it) }
+        }
+
+        return response
+    }
+
+    private suspend fun createTargetIndexOld(targetIndexName: String, targetIndexSettings: Settings?, hasLegacyPlugin: Boolean): CreateIndexResponse {
         val settings = Settings.builder().apply {
             targetIndexSettings?.let { put(it) }
             val rollupIndexSetting = if (hasLegacyPlugin) {

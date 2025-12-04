@@ -472,6 +472,13 @@
                                 },
                                 "value_count": {
                                   "type": "object"
+                                },
+                                "cardinality": {
+                                  "properties": {
+                                    "precision": {
+                                      "type": "integer"
+                                    }
+                                  }
                                 }
                               }
                             }
@@ -1117,6 +1124,13 @@
                 },
                 "value_count": {
                   "type": "object"
+                },
+                "cardinality": {
+                  "properties": {
+                    "precision": {
+                      "type": "integer"
+                    }
+                  }
                 }
               }
             }
