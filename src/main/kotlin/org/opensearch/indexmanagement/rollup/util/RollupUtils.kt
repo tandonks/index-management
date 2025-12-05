@@ -146,10 +146,12 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                     // Reference the pre-aggregated date histogram field
                     sourceBuilder.field("${dimension.targetField}.${dimension.type.type}")
                 }
+
                 is Terms -> {
                     // Reference the pre-aggregated terms field
                     sourceBuilder.field("${dimension.targetField}.${dimension.type.type}")
                 }
+
                 is Histogram -> {
                     // Reference the pre-aggregated histogram field
                     sourceBuilder.field("${dimension.targetField}.${dimension.type.type}")
@@ -192,6 +194,7 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                                 )
                             }
                         }
+
                         is Sum -> {
                             // Multi-tier: Sum the pre-computed sum values
                             // Standard: Sum the raw field values
@@ -202,6 +205,7 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                                     ),
                             )
                         }
+
                         is Max -> {
                             // Multi-tier: Take max of pre-computed max values (max of maxes)
                             // Standard: Take max of raw field values
@@ -212,6 +216,7 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                                     ),
                             )
                         }
+
                         is Min -> {
                             // Multi-tier: Take min of pre-computed min values (min of mins)
                             // Standard: Take min of raw field values
@@ -222,6 +227,7 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                                     ),
                             )
                         }
+
                         is ValueCount -> {
                             listOf(
                                 if (isRollupIndex) {
@@ -237,11 +243,21 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                                 },
                             )
                         }
+
                         is Cardinality -> {
-                            // Single cardinality aggregation provides both value and sketch
-                            // Similar to how avg needs sum + value_count, but cardinality is self-contained
-                            listOf(CardinalityAggregationBuilder(metric.targetFieldWithType(agg)).field(metric.sourceField))
+                            // Cardinality aggregation for HLL++ sketches
+                            // Multi-tier: Aggregate over pre-computed HLL sketches (field.hll)
+                            // Standard: Compute HLL sketch from raw field values
+                            // Note: The HLL sketch precision is determined by the HLL field mapping,
+                            // not by the aggregation builder. We just need to query the right field.
+                            listOf(
+                                CardinalityAggregationBuilder(metric.targetFieldWithType(agg))
+                                    .field(
+                                        if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField,
+                                    ),
+                            )
                         }
+
                         // This shouldn't be possible as rollup will fail to initialize with an unsupported metric
                         else -> throw IllegalArgumentException("Found unsupported metric aggregation ${agg.type.type}")
                     }
@@ -417,6 +433,7 @@ fun Rollup.rewriteAggregationBuilder(aggregationBuilder: AggregationBuilder): Ag
                     ),
                 )
         }
+
         is CardinalityAggregationBuilder -> {
             // Rewrite cardinality aggregation to use the .hll field
             // Customer queries: cardinality(field="user_id")
@@ -434,6 +451,7 @@ fun Rollup.rewriteAggregationBuilder(aggregationBuilder: AggregationBuilder): Ag
 
             CardinalityAggregationBuilder(aggregationBuilder.name).field(sketchField)
         }
+
         // We do nothing otherwise, the validation logic should have already verified so not throwing an exception
         else -> aggregationBuilder
     }

@@ -144,11 +144,13 @@ class RollupIndexer(
                     is InternalValueCount -> aggResults[it.name] = it.value
 
                     is InternalAvg -> aggResults[it.name] = it.value
+
                     is InternalCardinality -> {
                         // Store only the sketch for multi-tier rollup support
                         // The cardinality estimate can be computed from the sketch when needed
                         aggResults[it.name] = extractHLLSketch(it)
                     }
+
                     else -> error("Found aggregation in composite result that is not supported [${it.type} - ${it.name}]")
                 }
             }
@@ -176,12 +178,17 @@ class RollupIndexer(
      * @throws IllegalStateException if sketch extraction or serialization fails
      */
     private fun extractHLLSketch(cardinality: InternalCardinality): ByteArray = try {
-        // Serialize the InternalCardinality which contains the HLL++ sketch
-        // The HLL field type will extract the sketch during deserialization
-        // Note: This serializes the full InternalCardinality, not just the sketch
-        // TODO: Once we verify the exact API in the HLL PR, we can optimize to serialize just the sketch
+        // Extract the HLL++ sketch from InternalCardinality and serialize it
+        // The HLL field type expects raw sketch bytes from AbstractHyperLogLogPlusPlus.writeTo()
         val output = BytesStreamOutput()
-        cardinality.writeTo(output)
+        // Access the sketch through reflection since it's a private field
+        val sketchField = cardinality.javaClass.getDeclaredField("counts")
+        sketchField.isAccessible = true
+        val sketch = sketchField.get(cardinality) as org.opensearch.search.aggregations.metrics.AbstractHyperLogLogPlusPlus
+
+        // Serialize just the sketch, not the full InternalCardinality
+        // AbstractHyperLogLogPlusPlus.writeTo() requires bucket ordinal (0 for single bucket)
+        sketch.writeTo(0L, output)
         output.bytes().toBytesRef().bytes
     } catch (e: Exception) {
         logger.error("Failed to extract HLL++ sketch from cardinality aggregation: ${e.message}", e)
