@@ -80,8 +80,15 @@ object CardinalityValidation {
         rollup.metrics.forEach { rollupMetrics ->
             rollupMetrics.metrics.forEach { metric ->
                 if (metric is Cardinality) {
-                    // Validate precision
-                    validatePrecision(metric.precision, rollupMetrics.sourceField)
+                    // Validate precision threshold
+                    require(metric.precisionThreshold > 0) {
+                        "Precision threshold for field ${rollupMetrics.sourceField} must be positive, " +
+                            "got: ${metric.precisionThreshold}"
+                    }
+
+                    // Calculate and validate resulting precision
+                    val precision = Cardinality.precisionFromThreshold(metric.precisionThreshold)
+                    validatePrecision(precision, rollupMetrics.sourceField)
 
                     // Additional validations can be added here
                     // For example: check if source field exists in source index

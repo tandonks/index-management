@@ -7,6 +7,7 @@
 
 package org.opensearch.indexmanagement.rollup.util
 
+import org.apache.logging.log4j.LogManager
 import org.opensearch.action.get.GetResponse
 import org.opensearch.action.search.SearchRequest
 import org.opensearch.cluster.ClusterState
@@ -64,6 +65,8 @@ import org.opensearch.search.aggregations.metrics.ScriptedMetricAggregationBuild
 import org.opensearch.search.aggregations.metrics.SumAggregationBuilder
 import org.opensearch.search.aggregations.metrics.ValueCountAggregationBuilder
 import org.opensearch.search.builder.SearchSourceBuilder
+
+private val logger = LogManager.getLogger("RollupUtils")
 
 const val DATE_FIELD_STRICT_DATE_OPTIONAL_TIME_FORMAT = "strict_date_optional_time"
 const val DATE_FIELD_EPOCH_MILLIS_FORMAT = "epoch_millis"
@@ -248,14 +251,41 @@ fun Rollup.getCompositeAggregationBuilder(afterKey: Map<String, Any>?, clusterSt
                             // Cardinality aggregation for HLL++ sketches
                             // Multi-tier: Aggregate over pre-computed HLL sketches (field.hll)
                             // Standard: Compute HLL sketch from raw field values
-                            // Note: The HLL sketch precision is determined by the HLL field mapping,
-                            // not by the aggregation builder. We just need to query the right field.
-                            listOf(
-                                CardinalityAggregationBuilder(metric.targetFieldWithType(agg))
-                                    .field(
-                                        if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField,
-                                    ),
-                            )
+                            //
+                            // NOTE: OpenSearch's CardinalityAggregationBuilder ignores precisionThreshold
+                            // and always creates sketches with default precision 14. The mapping must use
+                            // precision 14 to match what the aggregation produces.
+                            val expectedPrecision = Cardinality.precisionFromThreshold(agg.precisionThreshold)
+
+                            // Create the aggregation builder
+                            val cardinalityAgg = CardinalityAggregationBuilder(metric.targetFieldWithType(agg))
+                                .field(
+                                    if (isRollupIndex) metric.targetFieldWithType(agg) else metric.sourceField,
+                                )
+                                .precisionThreshold(agg.precisionThreshold)
+
+                            // Log what precision the builder will use
+                            try {
+                                val precisionMethod = cardinalityAgg.javaClass.getMethod("precision")
+                                val computedPrecision = precisionMethod.invoke(cardinalityAgg)
+                                logger.info(
+                                    "CardinalityAggregationBuilder 2 for field {} - precisionThreshold={}, expected precision={}, builder.precision()={}",
+                                    metric.sourceField,
+                                    agg.precisionThreshold,
+                                    expectedPrecision,
+                                    computedPrecision,
+                                )
+                            } catch (e: Exception) {
+                                logger.info(
+                                    "Creating cardinality aggregation 2 for field {} with precisionThreshold={}, expected precision={}, error={}",
+                                    metric.sourceField,
+                                    agg.precisionThreshold,
+                                    expectedPrecision,
+                                    e,
+                                )
+                            }
+
+                            listOf(cardinalityAgg)
                         }
 
                         // This shouldn't be possible as rollup will fail to initialize with an unsupported metric

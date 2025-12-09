@@ -186,10 +186,31 @@ class RollupIndexer(
         sketchField.isAccessible = true
         val sketch = sketchField.get(cardinality) as org.opensearch.search.aggregations.metrics.AbstractHyperLogLogPlusPlus
 
+        // Log sketch details before serialization
+        // Use the public precision() method from AbstractCardinalityAlgorithm
+        val actualPrecision = sketch.precision()
+        logger.info(
+            "Extracting HLL sketch for field {}: actualPrecision={}, cardinalityValue={}, sketchClass={}",
+            cardinality.name,
+            actualPrecision,
+            cardinality.value,
+            sketch.javaClass.simpleName,
+        )
+
         // Serialize just the sketch, not the full InternalCardinality
         // AbstractHyperLogLogPlusPlus.writeTo() requires bucket ordinal (0 for single bucket)
         sketch.writeTo(0L, output)
-        output.bytes().toBytesRef().bytes
+        val bytes = output.bytes().toBytesRef().bytes
+
+        // Log serialized bytes details
+        logger.info(
+            "Serialized HLL sketch for field {}: byteLength={}, firstByte={} (precision marker)",
+            cardinality.name,
+            bytes.size,
+            bytes[0],
+        )
+
+        bytes
     } catch (e: Exception) {
         logger.error("Failed to extract HLL++ sketch from cardinality aggregation: ${e.message}", e)
         throw IllegalStateException("Failed to serialize HLL++ sketch for storage", e)

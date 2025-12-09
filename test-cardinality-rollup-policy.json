@@ -1,0 +1,58 @@
+{
+    "policy": {
+        "description": "Test cardinality rollup with precision_threshold",
+        "default_state": "rollup",
+        "states": [
+            {
+                "name": "rollup",
+                "actions": [
+                    {
+                        "rollup": {
+                            "ism_rollup": {
+                                "target_index": "rollup-test-index",
+                                "page_size": 1000,
+                                "dimensions": [
+                                    {
+                                        "date_histogram": {
+                                            "source_field": "timestamp",
+                                            "fixed_interval": "1h",
+                                            "timezone": "UTC"
+                                        }
+                                    },
+                                    {
+                                        "terms": {
+                                            "source_field": "category"
+                                        }
+                                    }
+                                ],
+                                "metrics": [
+                                    {
+                                        "source_field": "category",
+                                        "metrics": [
+                                            {
+                                                "cardinality": {
+                                                    "precision_threshold": 3000
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "source_field": "value",
+                                        "metrics": [
+                                            {
+                                                "sum": {}
+                                            },
+                                            {
+                                                "avg": {}
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

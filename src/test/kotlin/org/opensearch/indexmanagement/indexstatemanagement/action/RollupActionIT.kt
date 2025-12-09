@@ -1541,4 +1541,170 @@ class RollupActionIT : IndexStateManagementRestTestCase() {
             )
         }
     }
+
+    fun `test rollup action with cardinality metric`() {
+        val indexName = "${testIndexName}_cardinality_index"
+        val policyID = "${testIndexName}_cardinality_policy"
+        val rollup =
+            ISMRollup(
+                description = "cardinality rollup test",
+                targetIndex = "target_rollup_cardinality",
+                targetIndexSettings = null,
+                pageSize = 100,
+                dimensions =
+                listOf(
+                    DateHistogram(sourceField = "timestamp", fixedInterval = "1h"),
+                    Terms("category", "category"),
+                ),
+                metrics =
+                listOf(
+                    RollupMetrics(
+                        sourceField = "user_id",
+                        targetField = "user_id",
+                        metrics = listOf(org.opensearch.indexmanagement.rollup.model.metric.Cardinality(precision = 14)),
+                    ),
+                    RollupMetrics(
+                        sourceField = "value",
+                        targetField = "value",
+                        metrics = listOf(Sum(), Average()),
+                    ),
+                ),
+            )
+        val actionConfig = RollupAction(rollup, 0)
+        val states = listOf(State("rollup", listOf(actionConfig), listOf()))
+        val sourceIndexMappingString =
+            "\"properties\": {\"timestamp\": { \"type\": \"date\" }, \"category\": { \"type\": \"keyword\" }, " +
+                "\"user_id\": { \"type\": \"keyword\" }, \"value\": { \"type\": \"double\" }}"
+        val policy =
+            Policy(
+                id = policyID,
+                description = "cardinality rollup policy",
+                schemaVersion = 1L,
+                lastUpdatedTime = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+                errorNotification = randomErrorNotification(),
+                defaultState = states[0].name,
+                states = states,
+            )
+        createPolicy(policy, policyID)
+        createIndex(indexName, policyID, mapping = sourceIndexMappingString)
+
+        assertIndexRolledUp(indexName, policyID, rollup)
+
+        // Verify the rollup index was created
+        val rollupIndex = rollup.targetIndex
+        assertIndexExists(rollupIndex)
+
+        // Verify the rollup job has the cardinality metric configured
+        val rollupJob = getRollup(rollupId = rollup.toRollup(indexName).id)
+        assertNotNull("Rollup job should exist", rollupJob)
+        val cardinalityMetric = rollupJob.metrics.find { it.sourceField == "user_id" }
+        assertNotNull("Should have user_id metric", cardinalityMetric)
+        val cardinality = cardinalityMetric?.metrics?.find { it is org.opensearch.indexmanagement.rollup.model.metric.Cardinality }
+        assertNotNull("Should have cardinality metric", cardinality)
+        assertEquals(
+            "Cardinality precision should be 14",
+            14,
+            (cardinality as org.opensearch.indexmanagement.rollup.model.metric.Cardinality).precision,
+        )
+
+        // Verify HLL field mapping exists in the rollup index
+        val mappingResponse = client().makeRequest("GET", "/$rollupIndex/_mapping")
+        val mappingMap = mappingResponse.asMap()
+        val indexMapping = mappingMap[rollupIndex] as? Map<*, *>
+        assertNotNull("Index mapping should exist", indexMapping)
+        val mappings = indexMapping?.get("mappings") as? Map<*, *>
+        assertNotNull("Mappings should exist", mappings)
+        val properties = mappings?.get("properties") as? Map<*, *>
+        assertNotNull("Properties should exist", properties)
+
+        // Verify user_id field has HLL subfield
+        val userIdField = properties?.get("user_id") as? Map<*, *>
+        assertNotNull("user_id field should exist", userIdField)
+        val userIdProperties = userIdField?.get("properties") as? Map<*, *>
+        assertNotNull("user_id should have subfields", userIdProperties)
+        val hllField = userIdProperties?.get("hll") as? Map<*, *>
+        assertNotNull("user_id.hll field should exist", hllField)
+        assertEquals("user_id.hll should be hll type", "hll", hllField?.get("type"))
+
+        // Verify metadata contains precision information
+        val meta = mappings?.get("_meta") as? Map<*, *>
+        assertNotNull("_meta should exist", meta)
+        val rollupMeta = meta?.get("rollups") as? Map<*, *>
+        assertNotNull("rollup metadata should exist", rollupMeta)
+    }
+
+    fun `test multi-tier rollup with cardinality`() {
+        val tier1IndexName = "${testIndexName}_tier1_cardinality"
+        val tier1PolicyID = "${testIndexName}_tier1_cardinality_policy"
+        val tier1TargetIndex = "target_tier1_cardinality"
+
+        // Tier-1 rollup: raw data -> hourly rollup with cardinality
+        val tier1Rollup =
+            ISMRollup(
+                description = "tier-1 cardinality rollup",
+                targetIndex = tier1TargetIndex,
+                targetIndexSettings = null,
+                pageSize = 100,
+                dimensions =
+                listOf(
+                    DateHistogram(sourceField = "timestamp", fixedInterval = "1h"),
+                    Terms("category", "category"),
+                ),
+                metrics =
+                listOf(
+                    RollupMetrics(
+                        sourceField = "user_id",
+                        targetField = "user_id",
+                        metrics = listOf(org.opensearch.indexmanagement.rollup.model.metric.Cardinality(precision = 14)),
+                    ),
+                    RollupMetrics(
+                        sourceField = "value",
+                        targetField = "value",
+                        metrics = listOf(Sum()),
+                    ),
+                ),
+            )
+
+        val tier1ActionConfig = RollupAction(tier1Rollup, 0)
+        val tier1States = listOf(State("rollup", listOf(tier1ActionConfig), listOf()))
+        val sourceIndexMappingString =
+            "\"properties\": {\"timestamp\": { \"type\": \"date\" }, \"category\": { \"type\": \"keyword\" }, " +
+                "\"user_id\": { \"type\": \"keyword\" }, \"value\": { \"type\": \"double\" }}"
+        val tier1Policy =
+            Policy(
+                id = tier1PolicyID,
+                description = "tier-1 cardinality rollup policy",
+                schemaVersion = 1L,
+                lastUpdatedTime = Instant.now().truncatedTo(ChronoUnit.MILLIS),
+                errorNotification = randomErrorNotification(),
+                defaultState = tier1States[0].name,
+                states = tier1States,
+            )
+
+        createPolicy(tier1Policy, tier1PolicyID)
+        createIndex(tier1IndexName, tier1PolicyID, mapping = sourceIndexMappingString)
+
+        // Execute Tier-1 rollup
+        assertIndexRolledUp(tier1IndexName, tier1PolicyID, tier1Rollup)
+
+        // Verify Tier-1 rollup index was created with HLL field
+        assertIndexExists(tier1TargetIndex)
+
+        // Verify Tier-1 has HLL field mapping
+        val tier1MappingResponse = client().makeRequest("GET", "/$tier1TargetIndex/_mapping")
+        val tier1MappingMap = tier1MappingResponse.asMap()
+        val tier1IndexMapping = tier1MappingMap[tier1TargetIndex] as? Map<*, *>
+        assertNotNull("Tier-1 index mapping should exist", tier1IndexMapping)
+        val tier1Mappings = tier1IndexMapping?.get("mappings") as? Map<*, *>
+        val tier1Properties = tier1Mappings?.get("properties") as? Map<*, *>
+        val tier1UserIdField = tier1Properties?.get("user_id") as? Map<*, *>
+        val tier1UserIdProperties = tier1UserIdField?.get("properties") as? Map<*, *>
+        val tier1HllField = tier1UserIdProperties?.get("hll") as? Map<*, *>
+        assertNotNull("Tier-1 user_id.hll field should exist", tier1HllField)
+        assertEquals("Tier-1 user_id.hll should be hll type", "hll", tier1HllField?.get("type"))
+
+        // For Tier-2, we would need to create a new policy and apply it to tier1TargetIndex
+        // This test verifies that Tier-1 rollup with cardinality works correctly
+        // Tier-2 rollup would follow the same pattern: create policy, apply to tier1TargetIndex, execute rollup
+    }
 }

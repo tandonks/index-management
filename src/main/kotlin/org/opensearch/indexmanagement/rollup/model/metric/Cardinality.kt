@@ -5,6 +5,7 @@
 
 package org.opensearch.indexmanagement.rollup.model.metric
 
+import org.apache.lucene.util.packed.PackedInts
 import org.opensearch.core.common.io.stream.StreamInput
 import org.opensearch.core.common.io.stream.StreamOutput
 import org.opensearch.core.xcontent.ToXContent
@@ -12,52 +13,82 @@ import org.opensearch.core.xcontent.XContentBuilder
 import org.opensearch.core.xcontent.XContentParser
 import org.opensearch.core.xcontent.XContentParser.Token
 import org.opensearch.core.xcontent.XContentParserUtils.ensureExpectedToken
+import org.opensearch.search.aggregations.metrics.AbstractHyperLogLog
 
 class Cardinality(
-    val precision: Int = DEFAULT_PRECISION,
+    val precisionThreshold: Long = DEFAULT_PRECISION_THRESHOLD,
 ) : Metric(Type.CARDINALITY) {
     init {
-        require(precision in MIN_PRECISION..MAX_PRECISION) {
-            "Precision must be between $MIN_PRECISION and $MAX_PRECISION, got: $precision"
+        require(precisionThreshold > 0) {
+            "Precision threshold must be positive, got: $precisionThreshold"
         }
     }
 
     constructor(sin: StreamInput) : this(
-        precision = sin.readVInt(),
+        precisionThreshold = sin.readVLong(),
     )
 
     override fun toXContent(builder: XContentBuilder, params: ToXContent.Params): XContentBuilder {
         builder.startObject().startObject(Type.CARDINALITY.type)
-        if (precision != DEFAULT_PRECISION) {
-            builder.field(PRECISION_FIELD, precision)
+        if (precisionThreshold != DEFAULT_PRECISION_THRESHOLD) {
+            builder.field(PRECISION_THRESHOLD_FIELD, precisionThreshold)
         }
         return builder.endObject().endObject()
     }
 
     override fun writeTo(out: StreamOutput) {
-        out.writeVInt(precision)
+        out.writeVLong(precisionThreshold)
     }
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
         other as Cardinality
-        return precision == other.precision
+        return precisionThreshold == other.precisionThreshold
     }
 
-    override fun hashCode(): Int = precision.hashCode()
+    override fun hashCode(): Int = precisionThreshold.hashCode()
 
-    override fun toString(): String = "Cardinality(precision=$precision)"
+    override fun toString(): String = "Cardinality(precisionThreshold=$precisionThreshold)"
 
     companion object {
-        // HLL++ precision constants (from OpenSearch core AbstractHyperLogLog)
-        const val MIN_PRECISION = 4
-        const val MAX_PRECISION = 18
-        const val DEFAULT_PRECISION = 12
-        const val PRECISION_FIELD = "precision"
+        // Default precision threshold of 3000 provides a good balance between accuracy and memory
+        // This maps to precision 13, giving ~0.2% error with ~8KB per sketch
+        const val MAX_LOAD_FACTOR: Float = 0.75f
+        const val DEFAULT_PRECISION_THRESHOLD = 3000L
+        const val PRECISION_THRESHOLD_FIELD = "precision_threshold"
+
+//        /**
+//         * Converts precision threshold to HLL precision using OpenSearch's formula.
+//         * This matches the logic in CardinalityAggregator.precisionFromThreshold()
+//         */
+//        fun precisionFromThreshold(threshold: Long): Int {
+//            if (threshold <= 0) {
+//                return 14 // OpenSearch default
+//            }
+//
+//            // Formula: precision = ceil(log2(threshold * 0.75)) + 1
+//            val precision = Math.ceil(Math.log(threshold * 0.75) / Math.log(2.0)).toInt()
+//
+//            // Clamp to valid range [4, 18]
+//            return precision.coerceIn(4, 18)
+//        }
+
+        /**
+         * Compute the required precision so that `count` distinct entries would be counted with linear counting.
+         */
+        fun precisionFromThreshold(count: Long): Int {
+            val hashTableEntries = Math.ceil(count / MAX_LOAD_FACTOR.toDouble()).toLong()
+            var precision = PackedInts.bitsRequired(hashTableEntries * Integer.BYTES)
+
+            precision = maxOf(precision, AbstractHyperLogLog.MIN_PRECISION)
+            precision = minOf(precision, AbstractHyperLogLog.MAX_PRECISION)
+
+            return precision
+        }
 
         fun parse(xcp: XContentParser): Cardinality {
-            var precision = DEFAULT_PRECISION
+            var precisionThreshold = DEFAULT_PRECISION_THRESHOLD
 
             ensureExpectedToken(Token.START_OBJECT, xcp.currentToken(), xcp)
             while (xcp.nextToken() != Token.END_OBJECT) {
@@ -65,12 +96,12 @@ class Cardinality(
                 xcp.nextToken()
 
                 when (fieldName) {
-                    PRECISION_FIELD -> precision = xcp.intValue()
+                    PRECISION_THRESHOLD_FIELD -> precisionThreshold = xcp.longValue()
                     else -> throw IllegalArgumentException("Invalid field [$fieldName] found in cardinality metric")
                 }
             }
 
-            return Cardinality(precision)
+            return Cardinality(precisionThreshold)
         }
     }
 }

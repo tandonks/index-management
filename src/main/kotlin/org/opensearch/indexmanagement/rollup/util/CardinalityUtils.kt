@@ -24,9 +24,10 @@ object CardinalityUtils {
             metric.metrics.forEach { m ->
                 if (m is Cardinality) {
                     val sketchField = "${metric.targetField}.$HLL_SKETCH_SUFFIX"
+                    val precision = Cardinality.precisionFromThreshold(m.precisionThreshold)
                     properties[sketchField] = mapOf(
                         "type" to HLL_FIELD_TYPE,
-                        "precision" to m.precision,
+                        "precision" to precision,
                     )
                 }
             }
@@ -50,7 +51,7 @@ object CardinalityUtils {
                     metricsList.add(
                         mapOf(
                             "cardinality" to mapOf(
-                                "precision" to metric.precision,
+                                "precision_threshold" to metric.precisionThreshold,
                             ),
                         ),
                     )
@@ -114,10 +115,12 @@ object CardinalityUtils {
             targetMetric.metrics.forEach { metric ->
                 if (metric is Cardinality) {
                     val sourcePrecision = getPrecisionFromMetadata(sourceMetadata, targetMetric.sourceField)
+                    val targetPrecision = Cardinality.precisionFromThreshold(metric.precisionThreshold)
 
-                    if (sourcePrecision != null && sourcePrecision != metric.precision) {
+                    if (sourcePrecision != null && sourcePrecision != targetPrecision) {
                         return "Precision mismatch for field ${targetMetric.sourceField}: " +
-                            "source has precision $sourcePrecision but target specifies ${metric.precision}. " +
+                            "source has precision $sourcePrecision but target specifies $targetPrecision " +
+                            "(from precision_threshold ${metric.precisionThreshold}). " +
                             "Multi-tier rollups require matching precision values."
                     }
                 }

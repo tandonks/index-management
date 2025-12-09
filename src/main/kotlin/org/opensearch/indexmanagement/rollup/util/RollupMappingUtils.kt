@@ -38,7 +38,7 @@ object RollupMappingUtils {
             rollupMetrics.metrics.forEach { metric ->
                 if (metric is Cardinality) {
                     val targetField = rollupMetrics.targetField
-                    mappings.add(buildFieldMapping(targetField, metric.precision))
+                    mappings.add(buildFieldMapping(targetField, metric.precisionThreshold))
                 }
             }
         }
@@ -51,11 +51,14 @@ object RollupMappingUtils {
      * Creates structure: targetField.hll with HLL type and precision.
      *
      * @param targetField The target field name (e.g., "value", "user_id")
-     * @param precision The HLL++ precision (4-18)
+     * @param precisionThreshold The precision threshold which will be converted to HLL precision
      * @return JSON string for the field mapping
      */
-    private fun buildFieldMapping(targetField: String, precision: Int): String {
+    private fun buildFieldMapping(targetField: String, precisionThreshold: Long): String {
         val fieldParts = targetField.split(".")
+
+        // Convert precision threshold to actual precision using OpenSearch's formula
+        val precision = Cardinality.precisionFromThreshold(precisionThreshold)
 
         // Build nested structure
         val opening = fieldParts.joinToString("") { """"$it":{"properties":{""" }
