@@ -1561,7 +1561,7 @@ class RollupActionIT : IndexStateManagementRestTestCase() {
                     RollupMetrics(
                         sourceField = "user_id",
                         targetField = "user_id",
-                        metrics = listOf(org.opensearch.indexmanagement.rollup.model.metric.Cardinality(precision = 14)),
+                        metrics = listOf(org.opensearch.indexmanagement.rollup.model.metric.Cardinality(precisionThreshold = 40000)),
                     ),
                     RollupMetrics(
                         sourceField = "value",
@@ -1602,9 +1602,9 @@ class RollupActionIT : IndexStateManagementRestTestCase() {
         val cardinality = cardinalityMetric?.metrics?.find { it is org.opensearch.indexmanagement.rollup.model.metric.Cardinality }
         assertNotNull("Should have cardinality metric", cardinality)
         assertEquals(
-            "Cardinality precision should be 14",
-            14,
-            (cardinality as org.opensearch.indexmanagement.rollup.model.metric.Cardinality).precision,
+            "Cardinality precision threshold should be 40000",
+            40000L,
+            (cardinality as org.opensearch.indexmanagement.rollup.model.metric.Cardinality).precisionThreshold,
         )
 
         // Verify HLL field mapping exists in the rollup index
@@ -1655,7 +1655,7 @@ class RollupActionIT : IndexStateManagementRestTestCase() {
                     RollupMetrics(
                         sourceField = "user_id",
                         targetField = "user_id",
-                        metrics = listOf(org.opensearch.indexmanagement.rollup.model.metric.Cardinality(precision = 14)),
+                        metrics = listOf(org.opensearch.indexmanagement.rollup.model.metric.Cardinality(precisionThreshold = 40000)),
                     ),
                     RollupMetrics(
                         sourceField = "value",
